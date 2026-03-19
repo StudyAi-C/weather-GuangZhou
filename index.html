@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3月29日海珠体育中心天气</title>
+    <!-- 适配飞书/微信链接预览的 Meta 标签 -->
+    <meta property="og:title" content="3月29日海珠体育中心天气 (分钟级预警)">
+    <meta property="og:description" content="实时监控天气变化，带降水预警">
+    <meta property="og:type" content="website">
+    <style>
+        :root {
+            --primary-color: #1976d2;
+            --danger-color: #d32f2f;
+            --danger-bg: #ffebee;
+            --bg-color: #f0f4f8;
+            --card-bg: #ffffff;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            padding: 20px;
+            max-width: 900px;
+            margin: 0 auto;
+            background-color: var(--bg-color);
+            color: #333;
+        }
+
+        .card {
+            background: var(--card-bg);
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+            margin-bottom: 20px;
+        }
+
+        /* 分钟级预警专用样式 */
+        .alert-card {
+            background: var(--danger-bg);
+            border-left: 6px solid var(--danger-color);
+            color: #b71c1c;
+            display: none; /* 默认隐藏，有雨时通过JS显示 */
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(211, 47, 47, 0.4); }
+            70% { box-shadow: 0 0 0 10px rgba(211, 47, 47, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(211, 47, 47, 0); }
+        }
+
+        h2 {
+            margin-top: 0;
+            color: var(--primary-color);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .hour-list {
+            display: flex;
+            overflow-x: auto;
+            gap: 12px;
+            padding-bottom: 10px;
+            scrollbar-width: thin;
+        }
+
+        .hour-list::-webkit-scrollbar {
+            height: 6px;
+        }
+        .hour-list::-webkit-scrollbar-thumb {
+            background-color: #ccc;
+            border-radius: 3px;
+        }
+
+        .hour-item {
+            min-width: 90px;
+            background: #e3f2fd;
+            padding: 12px 8px;
+            border-radius: 10px;
+            text-align: center;
+            flex-shrink: 0;
+            border: 2px solid transparent;
+            transition: transform 0.2s;
+        }
+
+        .hour-item:hover {
+            transform: translateY(-2px);
+        }
+
+        /* 下雨时段的高亮样式 */
+        .hour-item.rainy {
+            border-color: var(--danger-color);
+            background: #ffebee;
+            color: var(--danger-color);
+        }
+
+        .time-text {
+            font-weight: bold;
+            font-size: 1.1em;
+            margin-bottom: 5px;
+        }
+
+        .temp-text {
+            font-size: 1.2em;
+            font-weight: 800;
+        }
+
+        .tip {
+            background: #fff9c4;
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 5px solid #fbc02d;
+            color: #f57f17;
+        }
+
+        .footer {
+            text-align: right;
+            color: #888;
+            font-size: 0.85em;
+            margin-top: 5px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 1. 分钟级降水预警卡片 (默认隐藏) -->
+    <div id="minutely-alert" class="card alert-card">
+        <div style="display:flex; align-items: center; gap: 10px; font-size: 1.2em; font-weight: bold; margin-bottom: 8px;">
+            ⛈️ 降水预警
+        </div>
+        <div id="minutely-content">正在分析雨情...</div>
+    </div>
+
+    <!-- 2. 主天气卡片 -->
+    <div class="card">
+        <h2>🌤️ 3月29日 海珠区体育中心</h2>
+        <div id="weather-container">
+            <div class="loading">正在加载天气数据...</div>
+        </div>
+        <div class="footer" id="update-time"></div>
+    </div>
+
+    <!-- 3. 温馨提示 -->
+    <div id="tip-container" class="tip">正在生成建议...</div>
+
+    <script>
+        // =========================================================
+        // ================= 【必须修改】配置区域 =================
+        // =========================================================
+        
+        // 1. 请将引号内的内容替换为你申请的和风天气 Key
+        const API_KEY = "902af698d72a4634aeff18d0dfc9bdd0"; 
+        
+        // 2. 经纬度 (默认是海珠体育中心，如需修改请替换)
+        const LOCATION = "113.32,23.14"; 
+        
+        // 3. 目标固定日期
+        const TARGET_DATE = "2026-03-29"; 
+        
+        // =========================================================
+
+        /**
+         * 主函数：加载所有天气数据
+         */
+        async function loadWeather() {
+            const container = document.getElementById("weather-container");
+            const updateTime = document.getElementById("update-time");
+            
+            try {
+                // --- 第一步：获取常规逐小时预报 ---
+                console.log("正在获取常规天气...");
+                const hourlyRes = await fetch(`https://devapi.qweather.com/v7/weather/168h?location=${LOCATION}&key=${API_KEY}`);
+                const hourlyData = await hourlyRes.json();
+
+                if (hourlyData.code !== "200") {
+                    throw new Error("常规天气API错误: " + hourlyData.code);
+                }
+
+                // 筛选出目标日期的数据
+                const targetDayData = hourlyData.hourly.filter(item => item.fxTime.startsWith(TARGET_DATE));
+
+                // --- 第二步：判断是否需要获取分钟级降水 ---
+                let minutelyData = null;
+                // 逻辑：如果目标日期当天有数据，且前6个小时内有雨或降水概率>50%
+                const willRain = checkRainProbability(targetDayData);
+
+                if (willRain) {
+                    console.log("检测到降雨可能，正在获取分钟级数据...");
+                    try {
+                        const minRes = await fetch(`https://devapi.qweather.com/v7/minutely/5m?location=${LOCATION}&key=${API_KEY}`);
+                        const minJson = await minRes.json();
+                        if (minJson.code === "200") {
+                            minutelyData = minJson;
+                        }
+                    } catch (e) {
+                        console.error("分钟级数据获取失败，但不影响主功能", e);
+                    }
+                }
+
+                // --- 第三步：渲染界面 ---
+                renderMinutelyAlert(minutelyData); // 渲染顶部预警
+                renderHourlyList(targetDayData);    // 渲染小时列表
+                generateTip(targetDayData);          // 渲染底部提示
+
+                updateTime.innerText = "最后更新: " + new Date().toLocaleString();
+
+            } catch (err) {
+                container.innerHTML = `<div class="loading" style="color:red;">❌ 加载失败: ${err.message}<br>请检查 API Key 是否设置正确。</div>`;
+            }
+        }
+
+        /**
+         * 辅助：简单判断是否有雨
+         */
+        function checkRainProbability(data) {
+            if (!data || data.length === 0) return false;
+            // 只看当天前12小时的数据来决定是否查分钟级
+            return data.slice(0, 12).some(h => h.text.includes('雨') || parseInt(h.pop) > 50);
+        }
+
+        /**
+         * 渲染：分钟级预警卡片
+         */
+        function renderMinutelyAlert(data) {
+            const alertBox = document.getElementById("minutely-alert");
+            const contentBox = document.getElementById("minutely-content");
+
+            if (!data || !data.minutely) {
+                alertBox.style.display = "none";
+                return;
+            }
+
+            // 显示卡片
+            alertBox.style.display = "block";
+            
+            // 构建文本
+            let html = `<div style="font-size: 1.05em; margin-bottom: 10px;">${data.summary}</div>`;
+            
+            // 找一下雨最大的时间点
+            const next2h = data.minutely;
+            let maxPrecip = 0;
+            let maxTime = "";
+            
+            next2h.forEach(m => {
+                let p = parseFloat(m.precip);
+                if (p > maxPrecip) {
+                    maxPrecip = p;
+                    maxTime = m.fxTime.split('T')[1].substring(0, 5);
+                }
+            });
+
+            if (maxPrecip > 0) {
+                html += `<div>📌 预测 <strong>${maxTime}</strong> 左右雨势较强 (${maxPrecip}mm/h)</div>`;
+            } else if (data.summary.includes("无")) {
+                 // 虽然API觉得有雨，但分钟级说没雨，微调显示
+                 alertBox.style.display = "none";
+            }
+
+            contentBox.innerHTML = html;
+        }
+
+        /**
+         * 渲染：小时级列表
+         */
+        function renderHourlyList(data) {
+            const container = document.getElementById("weather-container");
+            
+            if (!data || data.length === 0) {
+                container.innerHTML = "<div class='loading'>暂无数据（如果现在距离3月29日太远，API可能还未放出预报）</div>";
+                return;
+            }
+
+            let html = '<div class="hour-list">';
+            
+            data.forEach(hour => {
+                const time = hour.fxTime.split('T')[1].substring(0, 5);
+                const isRainy = hour.text.includes('雨');
+                const rainyClass = isRainy ? 'rainy' : '';
+                
+                html += `
+                    <div class="hour-item ${rainyClass}">
+                        <div class="time-text">${time}</div>
+                        <div>${hour.text}</div>
+                        <div class="temp-text">${hour.temp}°C</div>
+                        <div style="font-size:0.8em; margin-top:5px;">
+                            💧 ${hour.pop}%
+                        </div>
+                    </div>
+                `;
+            });
+            
+            html += '</div>';
+            container.innerHTML = html;
+        }
+
+        /**
+         * 渲染：底部温馨提示
+         */
+        function generateTip(data) {
+            const tipBox = document.getElementById("tip-container");
+            if (!data || data.length === 0) return;
+
+            const hasRain = data.some(h => h.text.includes('雨'));
+            const temps = data.map(h => parseInt(h.temp));
+            const maxTemp = Math.max(...temps);
+            const minTemp = Math.min(...temps);
+
+            let text = "";
+            if (hasRain) {
+                text = "⚠️ 今天有雨，出门请务必带伞！建议穿防水鞋。";
+            } else if (maxTemp > 30) {
+                text = "☀️ 今天天气炎热，最高温 " + maxTemp + "°C，注意防晒和多补充水分。";
+            } else if (maxTemp - minTemp > 8) {
+                text = "🌡️ 今天昼夜温差较大，建议备一件外套方便穿脱。";
+            } else {
+                text = "✅ 今天天气不错，预祝活动顺利！";
+            }
+
+            tipBox.innerText = text;
+        }
+
+        // --- 启动逻辑 ---
+        
+        // 1. 立即运行一次
+        loadWeather();
+
+        // 2. 设置定时器：每 10分钟 (600,000毫秒) 自动刷新一次
+        // 注意：如果不频繁查看，可以把 600000 改成 1800000 (半小时)
+        setInterval(loadWeather, 600000);
+
+    </script>
+</body>
+</html>
